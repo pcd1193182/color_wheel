@@ -3,6 +3,7 @@
 # Color wheel generation code adapted from http://www.ficml.org/jemimap/style/color/hsvwheel.phps , listed as "Free for any use"
 
 # Setup:
+# Install pip
 # python3 -m pip install pypng
 # python3 -m pip install numpy
 # python3 -m pip install scikit-image
