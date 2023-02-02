@@ -84,6 +84,9 @@ def rgb2hsb(r, g, b):
         mini = g
         d = maxi - mini
         h6 = ((mini - b)/d) + 6
+
+    if maxi == 0:
+        return (h6 * 60, 0, 0)
     b = round(maxi * 20 / 51)
     s = round((1 - (mini/maxi)) * 100)
     return (round(h6 * 60), s, b)
@@ -161,7 +164,6 @@ def draw_circle_impl(img, size, center_x, center_y, r, color):
     img[cc, rr] = color
 
 def draw_circle(img, size, center_x, center_y, r, t):
-    print("Drawing circle at (%d,%d) r: %d t: %d" % (center_x, center_y, r, t))
     draw_circle_impl(img, size, center_x, center_y, r, [0, 0, 0, 255])
     draw_circle_impl(img, size, center_x, center_y, r - t, [255, 255, 255, 255])
 
@@ -173,7 +175,6 @@ def draw_box_impl(img, size, center_x, center_y, s, color):
     img[cc, rr] = color
 
 def draw_box(img, size, center_x, center_y, s, t):
-    print("Drawing box at (%d,%d) r: %d t: %d" % (center_x, center_y, s, t))
     draw_box_impl(img, size, center_x, center_y, s, [0, 0, 0, 255])
     draw_box_impl(img, size, center_x, center_y, s - t, [255, 255, 255, 255])
 
@@ -220,7 +221,49 @@ def draw_cross(img, size, center_x, center_y, s, t):
     draw_cross_impl(img, size, center_x, center_y, s, 0, [0, 0, 0, 255])
     draw_cross_impl(img, size, center_x, center_y, s, round(4*t/5), [255, 255, 255, 255])
 
-display_funcs = [draw_circle, draw_box, draw_cross]
+#Draw a cross on the image centered at location center_x,center_y with size s
+def draw_plus_impl(img, size, center_x, center_y, s, correction, color):
+    rows = [0 for i in range(12)]
+    cols = [0 for i in range(12)]
+
+    large_off = s - correction
+    small_off = s // 2 - correction
+    rows[0] = center_x + large_off
+    cols[0] = center_y + small_off
+    rows[1] = center_x + small_off
+    cols[1] = center_y + small_off
+    rows[2] = center_x + small_off
+    cols[2] = center_y + large_off
+
+    rows[3] = center_x - small_off
+    cols[3] = center_y + large_off
+    rows[4] = center_x - small_off
+    cols[4] = center_y + small_off
+    rows[5] = center_x - large_off
+    cols[5] = center_y + small_off
+
+    rows[6] = center_x - large_off
+    cols[6] = center_y - small_off
+    rows[7] = center_x - small_off
+    cols[7] = center_y - small_off
+    rows[8] = center_x - small_off
+    cols[8] = center_y - large_off
+
+    rows[9] = center_x + small_off
+    cols[9] = center_y - large_off
+    rows[10] = center_x + small_off
+    cols[10] = center_y - small_off
+    rows[11] = center_x + large_off
+    cols[11] = center_y - small_off
+
+    rr, cc = skimage.draw.polygon(rows, cols)
+    img[cc, rr] = color
+
+def draw_plus(img, size, center_x, center_y, s, t):
+    draw_plus_impl(img, size, center_x, center_y, s, 0, [0, 0, 0, 255])
+    draw_plus_impl(img, size, center_x, center_y, s, round(4*t/5), [255, 255, 255, 255])
+
+display_funcs = [draw_circle, draw_box, draw_cross, draw_plus]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -233,10 +276,11 @@ if __name__ == "__main__":
     parser.add_argument('-c', '--column', default='condition', help='name of column to use to differentiate symbols; case sensitive')
     parser.add_argument('-d', '--symbol-size', type=int, default=4, help='size to make symbols for each data point')
     parser.add_argument('-t', '--symbol-thickness', type=int, default=2, help='thickness of borders for each symbol')
+    parser.add_argument('-v', '--verbose', default=False, action='store_true', help='print verbose runtime information')
     args = parser.parse_args()
 
     size = args.image_size * args.quality
-    mid = size // 2
+    mid = (size - args.symbol_size - 1) // 2
     symbol_size = args.symbol_size * args.quality
     symbol_thickness = args.symbol_thickness * args.quality
 
@@ -258,11 +302,25 @@ if __name__ == "__main__":
             img[ry][rx] = [r, g, b, 255]
             
 
-    print("Processinging data...")
+    print("Processing data...")
     conditionmap = {}
     idx = 0
     with open(args.infile, newline='') as csvfile:
         reader = csv.DictReader(csvfile)
+        if args.verbose:
+            print("Field names: %s" % reader.fieldnames)
+        if 'R' in reader.fieldnames:
+            red = 'R'
+        else:
+            red = 'r'
+        if 'G' in reader.fieldnames:
+            green = 'G'
+        else:
+            green = 'g'
+        if 'B' in reader.fieldnames:
+            blue = 'B'
+        else:
+            blue = 'b'
         for row in reader:
             if row[args.column] not in conditionmap:
                 if idx == len(display_funcs):
@@ -271,15 +329,12 @@ if __name__ == "__main__":
                 conditionmap[row[args.column]] = display_funcs[idx]
                 idx = idx + 1
             func = conditionmap[row[args.column]]
-            r = int(row['R'])
-            g = int(row['G'])
-            b = int(row['B'])
-            print("Drawing for %s, %d %d %d" % (row[args.column], r, g, b), end='')
+            r = int(row[red])
+            g = int(row[green])
+            b = int(row[blue])
             (h, s, b) = rgb2hsb(r, g, b)
             (rn, ad) = hsb2polar(h, s, b)
-            print(" polar %f %f" % (rn, ad), end='')
             (x, y) = polar2xy(rn, ad, mid)
-            print(" at %d %d" % (x, y))
             func(img, size, x + mid, mid - y, symbol_size, symbol_thickness)
     
     print("Downscaling...")
