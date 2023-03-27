@@ -15,6 +15,7 @@ import math
 import csv
 import skimage
 import argparse
+import random
 
 ### TRANSFORMATION FUNCTIONS
 
@@ -100,7 +101,7 @@ def polar2hsb(rn, ad):
     return (ad, 100, rb * 100)
 
 def hsb2polar(h, s, b):
-    if s <= b:
+    if s < b:
         rs = (100 - s)/100
         rn = (rs / 2) + .5
         return (rn, h)
@@ -157,6 +158,28 @@ def flatten(img, size):
     for y in range(size):
         out_img.append([img[y][x // 4][x % 4] for x in range(size * 4)])
     return out_img
+
+def draw_diamond_impl(img, size, center_x, center_y, s, color):
+    rows = [0 for i in range(4)]
+    cols = [0 for i in range(4)]
+    rows[0] = center_x + s
+    cols[0] = center_y
+
+    rows[1] = center_x
+    cols[1] = center_y + s
+
+    rows[2] = center_x - s
+    cols[2] = center_y
+
+    rows[3] = center_x
+    cols[3] = center_y - s
+
+    rr, cc = skimage.draw.polygon(rows, cols)
+    img[cc, rr] = color
+
+def draw_diamond(img, size, center_x, center_y, r, t):
+    draw_diamond_impl(img, size, center_x, center_y, r, [0, 0, 0, 255])
+    draw_diamond_impl(img, size, center_x, center_y, r - t, [255, 255, 255, 255])
 
 #Draw a circle on the image centered at location center_x,center_y with radius r
 def draw_circle_impl(img, size, center_x, center_y, r, color):
@@ -263,7 +286,7 @@ def draw_plus(img, size, center_x, center_y, s, t):
     draw_plus_impl(img, size, center_x, center_y, s, 0, [0, 0, 0, 255])
     draw_plus_impl(img, size, center_x, center_y, s, round(4*t/5), [255, 255, 255, 255])
 
-display_funcs = [draw_circle, draw_box, draw_cross, draw_plus]
+display_funcs = [draw_box, draw_cross, draw_plus, draw_diamond]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -276,13 +299,16 @@ if __name__ == "__main__":
     parser.add_argument('-c', '--column', default='condition', help='name of column to use to differentiate symbols; case sensitive')
     parser.add_argument('-d', '--symbol-size', type=int, default=4, help='size to make symbols for each data point')
     parser.add_argument('-t', '--symbol-thickness', type=int, default=2, help='thickness of borders for each symbol')
-    parser.add_argument('-v', '--verbose', default=False, action='store_true', help='print verbose runtime information')
+    parser.add_argument('-v', '--verbose', default=0, action='count', help='print verbose runtime information')
+    parser.add_argument('-x', '--hex-colors', default=False, action='store_true', help='use hex codes instead of r g b columns')
+    parser.add_argument('-j', '--no-jitter', dest='jitter', default=True, action='store_false', help="don't jitter identicial values to make display easier")
+    parser.add_argument('-w', '--no-white', default=False, action='store_true', help='exclude white or near-white values')
     args = parser.parse_args()
 
     size = args.image_size * args.quality
-    mid = (size - args.symbol_size - 1) // 2
     symbol_size = args.symbol_size * args.quality
     symbol_thickness = args.symbol_thickness * args.quality
+    mid = (size - (symbol_size * 3 + symbol_thickness) - 1) // 2
 
     print("Generating wheel..")
     img = np.zeros((size, size, 4), dtype=np.uint8)
@@ -307,7 +333,7 @@ if __name__ == "__main__":
     idx = 0
     with open(args.infile, newline='') as csvfile:
         reader = csv.DictReader(csvfile)
-        if args.verbose:
+        if args.verbose >= 2:
             print("Field names: %s" % reader.fieldnames)
         if 'R' in reader.fieldnames:
             red = 'R'
@@ -321,6 +347,7 @@ if __name__ == "__main__":
             blue = 'B'
         else:
             blue = 'b'
+        jitterset = set({})
         for row in reader:
             if row[args.column] not in conditionmap:
                 if idx == len(display_funcs):
@@ -329,13 +356,43 @@ if __name__ == "__main__":
                 conditionmap[row[args.column]] = display_funcs[idx]
                 idx = idx + 1
             func = conditionmap[row[args.column]]
-            r = int(row[red])
-            g = int(row[green])
-            b = int(row[blue])
+            if args.hex_colors:
+                (r, g, b) = tuple(int(row['hex'][i:i+2], 16) for i in (0, 2, 4))
+                if args.verbose >= 2:
+                    print("Mapping %s to %d %d %d" % (row['hex'], r, g, b), end='')
+            else:
+                r = int(row[red])
+                g = int(row[green])
+                b = int(row[blue])
+                if args.verbose >= 2:
+                    print("Mapping %d %d %d" % (r, g, b), end='')
             (h, s, b) = rgb2hsb(r, g, b)
+            if args.verbose >= 3:
+                print(" to %d %d %d" % (h, s, b), end='')
             (rn, ad) = hsb2polar(h, s, b)
+            if args.verbose >= 3:
+                print(" to %d %d" % (rn, ad), end='')
             (x, y) = polar2xy(rn, ad, mid)
+            if args.verbose >=2:
+                print(" to %d %d" % (x, y))
+            if args.jitter:
+                if (x, y) in jitterset:
+                    dist = random.uniform(.8 * symbol_size, 2 * symbol_size)
+                    ang = random.uniform(0, 2 * math.pi)
+                    x += round(math.cos(ang) * dist)
+                    y += round(math.sin(ang) * dist)
+                    if args.verbose >= 2:
+                        print("jittering by %d,%d" % (math.cos(ang) * dist, math.sin(ang) * dist))
+                else:
+                    jitterset.add((x,y))
+            if rn >= .95 and args.no_white:
+                if args.verbose >= 2:
+                    print("Skipping due to whiteness")
+                continue
             func(img, size, x + mid, mid - y, symbol_size, symbol_thickness)
+        if args.verbose >= 1:
+            for (k, v) in conditionmap.items():
+                print("%s maps to %s" % (k, v.__name__))
     
     print("Downscaling...")
     if args.quality == 1:
