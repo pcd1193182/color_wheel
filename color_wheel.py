@@ -16,6 +16,7 @@ import csv
 import skimage
 import argparse
 import random
+import matplotlib.pyplot as plt
 
 ### TRANSFORMATION FUNCTIONS
 
@@ -144,7 +145,7 @@ def supersample(img, outsize, ss_rate):
             a = 0
             for xi in range(ss_rate):
                 for yi in range(ss_rate):
-                    pixel = img[y * ss_rate + yi][x * ss_rate + xi]
+                    pixel = img[y * ss_rate + yi][x * ss_rate + xi].astype(int)
                     r = r + pixel[0]
                     g = g + pixel[1]
                     b = b + pixel[2]
@@ -288,6 +289,16 @@ def draw_plus(img, size, center_x, center_y, s, t):
 
 display_funcs = [draw_box, draw_cross, draw_plus, draw_diamond]
 
+def draw_text(img, size, center_x, center_y, s, t, v, c, f, color):
+    fig = plt.figure()
+    fig.figimage(img, resize=True)
+    print("Printing %s at %f %f" % (v, center_x / size, 1 - (center_y / size)))
+    fig.text(center_x / size, 1 - (center_y / size), v.upper() if c == "UPPER" else v.lower(), fontsize=s, va="center", font=f, weight=t, color=color)
+    fig.canvas.draw()
+    annotated_img = np.asarray(fig.canvas.renderer.buffer_rgba())
+    plt.close(fig)
+    return annotated_img
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog = 'color_wheel',
@@ -299,6 +310,7 @@ if __name__ == "__main__":
     parser.add_argument('-c', '--column', default='condition', help='name of column to use to differentiate symbols; case sensitive')
     parser.add_argument('-d', '--symbol-size', type=int, default=4, help='size to make symbols for each data point')
     parser.add_argument('-t', '--symbol-thickness', type=int, default=2, help='thickness of borders for each symbol')
+    parser.add_argument('-T', '--text', default=False, action='store_true', help='use text instead of symbols')
     parser.add_argument('-v', '--verbose', default=0, action='count', help='print verbose runtime information')
     parser.add_argument('-x', '--hex-colors', default=False, action='store_true', help='use hex codes instead of r g b columns')
     parser.add_argument('-j', '--no-jitter', dest='jitter', default=True, action='store_false', help="don't jitter identicial values to make display easier")
@@ -349,13 +361,14 @@ if __name__ == "__main__":
             blue = 'b'
         jitterset = set({})
         for row in reader:
-            if row[args.column] not in conditionmap:
+            if not args.text and row[args.column] not in conditionmap:
                 if idx == len(display_funcs):
                     print("Error: Too many different values for condition, only %d shapes supported" % len(display_funcs))
                     exit(1)
                 conditionmap[row[args.column]] = display_funcs[idx]
                 idx = idx + 1
-            func = conditionmap[row[args.column]]
+            if not args.text:
+                func = conditionmap[row[args.column]]
             if args.hex_colors:
                 (r, g, b) = tuple(int(row['hex'][i:i+2], 16) for i in (0, 2, 4))
                 if args.verbose >= 2:
@@ -389,7 +402,10 @@ if __name__ == "__main__":
                 if args.verbose >= 2:
                     print("Skipping due to whiteness")
                 continue
-            func(img, size, x + mid, mid - y, symbol_size, symbol_thickness)
+            if args.text:
+                img = draw_text(img, size, x + mid, mid - y, symbol_size, symbol_thickness, row['Vowel'], row['Case'], row['Font'], '#ffffff' if x**2 + y**2 < (size / 10)**2 else '#000000')
+            else:
+                func(img, size, x + mid, mid - y, symbol_size, symbol_thickness)
         if args.verbose >= 1:
             for (k, v) in conditionmap.items():
                 print("%s maps to %s" % (k, v.__name__))

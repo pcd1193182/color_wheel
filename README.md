@@ -8,7 +8,7 @@ This utility generates an RGB color wheel that attempts to include the full colo
 The program assumes that the RGB color values that represent locations for each point are stored in columns named R, G, and B.
 
 ## Requirements
-Requires pip to be installed, as well as `pypng`, `numpy`, and `scikit-image`.
+Requires pip to be installed, as well as `pypng`, `numpy`, `matplotlib`, and `scikit-image`.
 
 ## Usage
 `./color_wheel.py <infile> <outfile>`
